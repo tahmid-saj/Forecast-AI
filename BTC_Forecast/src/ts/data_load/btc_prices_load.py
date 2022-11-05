@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 import yfinance as yf
+import boto3
 
 import os
 from datetime import datetime
