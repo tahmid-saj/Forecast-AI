@@ -4,6 +4,10 @@ from ts.etl.visualization import *
 from ts.training_prediction.model.ensemble_model import *
 from ts.training_prediction.evaluation import *
 from ts.training_prediction.visualization import *
+from ts.training_prediction.visualization.forecast_visualization import *
+from ts.training_prediction.evaluation.evaluation_metrics import *
+from ts.etl.training_prediction.sp_prices_etl import *
+from ts.etl.visualization.time_series_visualization import *
 
 # ML/DS libraries
 import numpy as np
@@ -17,10 +21,29 @@ from datetime import datetime
 from sklearn.preprocessing import minmax_scale
 from tensorflow.keras.utils import plot_model
 
-# AWS libraries
-import boto3
 # Data loading libraries
 import yfinance as yf
+
+df_sp_500_price = pd.read_csv("./data/data_load/train/sp_500_price_closing.csv")
+
+# Including volume to the full stock closing price dataset
+df_sp_500_price_volume = include_price_volume(df_sp_500_price=df_sp_500_price)
+
+print(f"Head of S&P 500 price and volume dataset: \n {df_sp_500_price_volume.head()}")
+print(f"Tail of S&P 500 price and volume dataset: \n {df_sp_500_price_volume.tail()}")
+# Plotting the S&P 500 price and volume over time
+plot_volume_price_data(df_sp_500_price_volume=df_sp_500_price_volume)
+
+# Obtain the full windows and labels with volume included
+dataset_full_windows_vol, dataset_full_labels_vol = make_windows_labels_multivariate(df_sp_500_price_volume)
+
+# Obtain the train/test sets of the full windows and labels with block reward included
+train_windows, test_windows, train_labels, test_labels = make_train_test_splits(windows=dataset_full_windows_vol, labels=dataset_full_labels_vol)
+
+# Obtain the train and test datasets
+train_dataset, test_dataset = gen_train_test_datasets(X_train=train_windows, y_train=train_labels,
+                                                      X_test=test_windows, y_test=test_labels)
+print(f"Train dataset: {train_dataset}", f"Test dataset: {test_dataset}")
 
 # Create AR model
 AR_model = get_AR_model(len(train_windows), WINDOW_SIZE_WEEK + 1)
@@ -39,8 +62,8 @@ LSTM_model = LSTM_model_obj.get_model()
 dense_model_obj = DenseModel()
 dense_model = dense_model_obj.get_model()
 
-train_models = [NBEATS_model, LSTM_model, dense_model]
-# train_models = [NBEATS_model, LNRNN_model, LSTM_model, dense_model]
+#train_models = [LSTM_model]
+train_models = [NBEATS_model, LNRNN_model, LSTM_model, dense_model]
 # train_models = [LNRNN_model]
 
 # Obtain list of trained ensemble models
@@ -74,10 +97,10 @@ lower, upper = get_upper_lower_confidence(preds=ensemble_preds)
 ensemble_median = np.median(ensemble_preds, axis=0)
 
 # Plot the confidence interval
-plot_confidence_interval(test_windows, test_labels, ensemble_median, lower=lower, upper=upper, offset=300)
+plot_confidence_interval(test_windows, test_labels, ensemble_median, lower=lower, upper=upper, offset=0)
 
-# Make forecasts into future of the price of bitcoin
-future_forecast = make_future_forecast(models=ensemble_models, values=dataset_full_labels_br, 
+# Make forecasts into future of the price of S&P 500 stocks
+future_forecast = make_future_forecast(models=ensemble_models, values=dataset_full_labels_vol, 
                                        into_future=INTO_FUTURE_2_WEEK, window_size=WINDOW_SIZE_WEEK + 1)
 
-plot_future_forecast(df_btc_price=df_btc_price_closing, future_forecast=future_forecast)
+plot_future_forecast(df_stock_price=df_sp_500_price, future_forecast=future_forecast, start=0)

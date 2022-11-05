@@ -1,3 +1,26 @@
+from ts.training_prediction.model.assets import *
+from ts.etl.training_prediction import *
+from ts.etl.visualization import *
+
+# ML/DS libraries
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import plotly.graph_objs as go
+import tensorflow as tf
+from tensorflow.keras import layers
+import os
+from datetime import datetime
+from sklearn.preprocessing import minmax_scale
+from tensorflow.keras.utils import plot_model
+
+# AWS libraries
+import boto3
+# Data loading libraries
+import yfinance as yf
+
+df_btc_price_closing = pd.read_csv("./data/data_load/train/btc_price_closing.csv")
+
 # Take the full dataset's timesteps and closing prices
 dataset_timesteps = df_btc_price_closing.index.to_numpy()
 dataset_prices = df_btc_price_closing['Price'].to_numpy()
