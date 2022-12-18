@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 import tensorflow as tf
 from tensorflow.keras import layers
+from tensorflow import keras
 import os
 from datetime import datetime
 from sklearn.preprocessing import minmax_scale
@@ -16,6 +17,9 @@ from ts.training_prediction.model.assets import *
 import boto3
 # Data loading libraries
 import yfinance as yf
+
+import torch
+import torch.nn as nn
 
 ## Modelling checkpoint
 def create_model_checkpoint(model_name, save_path="btc_predict_model"):
@@ -260,6 +264,21 @@ class DenseModel():
 
         return dense_model
 
+class WaveNet():
+    def __init__(self):
+        self.model = keras.models.Sequential()
+        self.model.add(keras.layers.InputLayer(input_shape=[None, 1]))
+        
+        for rate in (1, 2, 4, 8) * 2:
+            # Define a spacing between the values in a kernel
+            # 3x3 will be similar to 5x5 with a spacing of 2
+            self.model.add(keras.layers.Conv1D(filters=20, kernel_size=2, padding="causal", activation="relu", dilation_rate=rate))
+        
+        self.model.add(keras.layers.Conv1D(filters=10, kernel_size=1))
+    
+    def get_model(self):
+        return self.model
+
 # Generate an ensemble of models using various loss functions
 def get_ensemble_models(models, train_data, test_data, horizon=HORIZON_DAY, num_iter=10, num_epochs=100,
                         loss_funcs=["mae", "mse", "mape"]):
@@ -335,3 +354,101 @@ def get_ensemble_models_summary(models):
     """
     for model in models:
         print(model.summary())
+
+def auto_regressive_model(window_size=WINDOW_SIZE_WEEK, lr=0.1):
+    model = nn.Linear(window_size, 1)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+                                      
+    return model, criterion, optimizer
+
+class RNNModel_torch(nn.Module):
+    def __init__(self, n_inputs, n_hidden, n_rnnlayers, n_outputs):
+        super(RNNModel_torch, self).__init__()
+        self.n_inputs = n_inputs
+        self.n_hidden = n_hidden
+        self.n_outputs = n_outputs
+        self.n_rnnlayers = n_rnnlayers
+        
+        self.rnn = nn.RNN(
+                input_size=self.n_inputs,
+                hidden_size=self.n_hidden,
+                num_layers=self.n_rnnlayers,
+                nonlinearity="relu",
+                batch_first=True)
+        
+        self.fc = nn.Linear(self.n_hidden, self.n_outputs)
+        
+    def forward(self, inputs):
+        hidden_state = torch.zeros(self.n_rnnlayers, inputs.size(0), self.n_hidden).to(device)
+        
+        out, time_step_val = self.rnn(inputs, hidden_state)
+        out = self.fc(out[:, -1, :])
+        
+        return out
+    
+class LSTMModel_torch(nn.Module):
+    def __init__(self, n_inputs, n_hidden, n_rnnlayers, n_outputs):
+        super(LSTMModel_torch, self).__init__()
+        self.n_inputs = n_inputs
+        self.n_hidden = n_hidden
+        self.n_outputs = n_outputs
+        self.n_rnnlayers = n_rnnlayers
+        
+        self.lstm = nn.LSTM(input_size=self.n_inputs,
+                          hidden_size=self.n_hidden,
+                          num_layers=self.n_rnnlayers,
+                          batch_first=True)
+        
+        self.fc = nn.Linear(self.n_hidden, self.n_outputs)
+        
+    def forward(self, inputs):
+        hidden_state = torch.zeros(self.n_rnnlayers, inputs.size(0), self.n_hidden).to(device)
+        cell_state = torch.zeros(self.n_rnnlayers, inputs.size(0), self.n_hidden).to(device)
+        
+        out, time_step_val = self.lstm(inputs, (hidden_state, cell_state))
+        out = self.fc(out[:, -1, :])
+        
+        return out
+
+def BGD_training(model, criterion, optimizer, train_windows, train_labels, test_windows, test_labels, epochs=200):
+    train_losses = np.zeros(epochs)
+    test_losses = np.zeros(epochs)
+    
+    for epoch in range(epochs):
+        optimizer.zero_grad()
+        
+        outputs = model(train_windows)
+        loss = criterion(outputs, train_labels)
+        
+        loss.backward()
+        optimizer.step()
+        
+        train_losses[epoch] = loss.item()
+        
+        test_outputs = model(test_windows)
+        test_loss = criterion(test_outputs, test_labels)
+        
+        test_losses[epoch] = test_loss.item()
+        
+        if (epoch + 1) % 5 == 0:
+            print(f"Epoch {epoch + 1} / {epochs}, test loss: {test_loss.item()}")
+            
+    return train_losses, test_losses
+
+def plot_forecast_torch(model, test_windows, full_windows, full_labels, n_samples):
+    validation_target = full_labels[-n_samples // 20:]
+    validation_predictions = []
+
+    day = 0
+
+    while len(validation_predictions) < len(validation_target):
+        inputs = test_windows[day].view(-1, 1)
+        print(inputs)
+        pred = model(inputs)[0, 0].item()
+        day += 1
+
+        validation_predictions.append(pred)
+        
+    return validation_target, validation_predictions
+
